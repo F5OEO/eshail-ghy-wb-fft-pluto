@@ -16,15 +16,14 @@ CFLAGS = -Wall -Wextra -Wpedantic -std=gnu11 -D_GNU_SOURCE
 CFLAGS += -D BUILD_VERSION="\"$(shell git describe --dirty --always)\""	\
 		-D BUILD_DATE="\"$(shell date '+%Y-%m-%d_%H:%M:%S')\""
 
-BIN = airspy_fft_ws
+BIN = pluto_fft_ws
 
 # ========================================================================================
 # Source files
 
 SRCDIR = .
 
-SRC = 	$(SRCDIR)/libairspy/libairspy/src/*.c \
-		$(SRCDIR)/main.c
+SRC = 		$(SRCDIR)/main.c
 
 # ========================================================================================
 # External Libraries
@@ -32,15 +31,15 @@ SRC = 	$(SRCDIR)/libairspy/libairspy/src/*.c \
 LIBSDIR = libwebsockets/build/include
 OBSDIR = libwebsockets/build/lib
 
-LIBS = -lm -pthread `pkg-config --libs libairspy` -lusb-1.0 -lfftw3 -Wl,-Bstatic -lwebsockets -Wl,-Bdynamic
+LIBS = -lm -pthread  -liio -lfftw3 -Wl,-Bstatic -lwebsockets -Wl,-Bdynamic
 
-CFLAGS += `pkg-config --cflags libairspy`
+#CFLAGS += `pkg-config --cflags libairspy`
 
 # ========================================================================================
 # Makerules
 
 all:
-	@pkg-config --modversion "libairspy = 1.0"
+	
 	$(CC) $(COPT) $(CFLAGS) $(SRC) -o $(BIN) -I $(LIBSDIR) -L $(OBSDIR) $(LIBS)
 
 debug: COPT = -Og -ggdb -fno-omit-frame-pointer -D__DEBUG

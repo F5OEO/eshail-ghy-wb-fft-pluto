@@ -31,12 +31,13 @@
 #include <unistd.h>
 #include <inttypes.h>
 #include <errno.h>
-
 #include <libwebsockets.h>
+
 #include <pthread.h>
 #include <math.h>
 #include <fftw3.h>
-#include "libairspy/libairspy/src/airspy.h"
+#include "ad9363.h"
+//#include "libairspy/libairspy/src/airspy.h"
 
 const int32_t fft_line_compensation[1024] = {
 	1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,

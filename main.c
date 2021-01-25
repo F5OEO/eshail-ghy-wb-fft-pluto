@@ -10,8 +10,8 @@
 #define FFT_SIZE        1024
 #define FFT_TIME_SMOOTH 0.999f // 0.0 - 1.0
 
-#define AIRSPY_FREQ     745000000
-
+//#define AIRSPY_FREQ     744950000
+#define AIRSPY_FREQ     745000000 
 #define AIRSPY_SAMPLE   10000000
 
 #define AIRSPY_SERIAL	0x644064DC2354AACD // WB
@@ -43,26 +43,27 @@ static void sleep_ms(uint32_t _duration)
     }
 }
 
-/** AirSpy Vars **/
-struct airspy_device* device = NULL;
-/* Sample type -> 32bit Complex Float */
-enum airspy_sample_type sample_type_val = AIRSPY_SAMPLE_FLOAT32_IQ;
 /* Sample rate */
 uint32_t sample_rate_val = AIRSPY_SAMPLE;
 /* DC Bias Tee -> 0 (disabled) */
 uint32_t biast_val = 0;
 /* Linear Gain */
 #define LINEAR
-uint32_t linearity_gain_val = 12; // MAX=21
+uint32_t linearity_gain_val = 31; // MAX=21
 /* Sensitive Gain */
 //#define SENSITIVE
-uint32_t sensitivity_gain_val = 10; // MAX=21
+uint32_t sensitivity_gain_val = 31; // MAX=21
 /* Frequency */
 uint32_t freq_hz = AIRSPY_FREQ;
 
+/* transfer->sample_count is normally 65536 */
+#define	AIRSPY_BUFFER_COPY_SIZE	FFT_SIZE 
+
+
+
 double hanning_window_const[FFT_SIZE];
 
-int airspy_rx(airspy_transfer_t* transfer);
+//int airspy_rx(airspy_transfer_t* transfer);
 
 #define FLOAT32_EL_SIZE_BYTE (4)
 fftw_complex* fft_in;
@@ -90,27 +91,7 @@ void setup_fft(void)
     }
 }
 
-static void close_airspy(void)
-{
-    int result;
-    
-    /* De-init AirSpy device */
-    if(device != NULL)
-    {
-	    result = airspy_stop_rx(device);
-	    if( result != AIRSPY_SUCCESS ) {
-		    printf("airspy_stop_rx() failed: %s (%d)\n", airspy_error_name(result), result);
-	    }
 
-	    result = airspy_close(device);
-	    if( result != AIRSPY_SUCCESS ) 
-	    {
-		    printf("airspy_close() failed: %s (%d)\n", airspy_error_name(result), result);
-	    }
-	
-	    airspy_exit();
-    }
-}
 
 static void close_fftw(void)
 {
@@ -121,88 +102,31 @@ static void close_fftw(void)
     fftw_forget_wisdom();
 }
 
-static uint8_t setup_airspy()
+
+static uint8_t setup_pluto()
 {
     int result;
+     printf("Initialize Pluto hardware\n");
+    fmc_init_name("plutodatv.local");
 
-    result = airspy_init();
-    if( result != AIRSPY_SUCCESS ) {
-	    printf("airspy_init() failed: %s (%d)\n", airspy_error_name(result), result);
-	    return 0;
-    }
-    #ifdef AIRSPY_SERIAL
-    	result = airspy_open_sn(&device, AIRSPY_SERIAL);
-    #else
-    	result = airspy_open(&device);
-    #endif
-    if( result != AIRSPY_SUCCESS ) {
-	    printf("airspy_open() failed: %s (%d)\n", airspy_error_name(result), result);
-	    airspy_exit();
-	    return 0;
-    }
+    fmc_set_frequency(freq_hz,false);
 
-    result = airspy_set_sample_type(device, sample_type_val);
-    if (result != AIRSPY_SUCCESS) {
-	    printf("airspy_set_sample_type() failed: %s (%d)\n", airspy_error_name(result), result);
-	    airspy_close(device);
-	    airspy_exit();
-	    return 0;
-    }
+	fmc_set_sr(sample_rate_val,false);//rx
+		    
+	fmc_set_analog_lpf(sample_rate_val,false);
 
-    result = airspy_set_samplerate(device, sample_rate_val);
-    if (result != AIRSPY_SUCCESS) {
-	    printf("airspy_set_samplerate() failed: %s (%d)\n", airspy_error_name(result), result);
-	    airspy_close(device);
-	    airspy_exit();
-	    return 0;
-    }
+	//fmc_set_rx_level(linearity_gain_val);
+    fmc_set_rx_agcmode(true);
+	
+	fmc_initchannelrx(AIRSPY_BUFFER_COPY_SIZE, 4); //1024 IQ
 
-    result = airspy_set_rf_bias(device, biast_val);
-    if( result != AIRSPY_SUCCESS ) {
-	    printf("airspy_set_rf_bias() failed: %s (%d)\n", airspy_error_name(result), result);
-	    airspy_close(device);
-	    airspy_exit();
-	    return 0;
-    }
-
-    #ifdef LINEAR
-	    result =  airspy_set_linearity_gain(device, linearity_gain_val);
-	    if( result != AIRSPY_SUCCESS ) {
-		    printf("airspy_set_linearity_gain() failed: %s (%d)\n", airspy_error_name(result), result);
-	    }
-    #elif defined SENSITIVE
-	    result =  airspy_set_sensitivity_gain(device, sensitivity_gain_val);
-	    if( result != AIRSPY_SUCCESS ) {
-		    printf("airspy_set_sensitivity_gain() failed: %s (%d)\n", airspy_error_name(result), result);
-	    }
-    #endif
-
-    result = airspy_start_rx(device, airspy_rx, NULL);
-    if( result != AIRSPY_SUCCESS ) {
-	    printf("airspy_start_rx() failed: %s (%d)\n", airspy_error_name(result), result);
-	    airspy_close(device);
-	    airspy_exit();
-	    return 0;
-    }
-
-    result = airspy_set_freq(device, freq_hz);
-    if( result != AIRSPY_SUCCESS ) {
-	    printf("airspy_set_freq() failed: %s (%d)\n", airspy_error_name(result), result);
-	    airspy_close(device);
-	    airspy_exit();
-	    return 0;
-    }
-    
     return 1;
 }
-
-/* transfer->sample_count is normally 65536 */
-#define	AIRSPY_BUFFER_COPY_SIZE	65536
 
 typedef struct {
 	uint32_t index;
 	uint32_t size;
-	char data[AIRSPY_BUFFER_COPY_SIZE * FLOAT32_EL_SIZE_BYTE];
+	char data[AIRSPY_BUFFER_COPY_SIZE * FLOAT32_EL_SIZE_BYTE * 2];
 	pthread_mutex_t mutex;
 	pthread_cond_t 	signal;
 } rf_buffer_t;
@@ -216,6 +140,7 @@ rf_buffer_t rf_buffer = {
 };
 
 /* Airspy RX Callback, this is called by a new thread within libairspy */
+/*
 int airspy_rx(airspy_transfer_t* transfer)
 {    
     if(transfer->samples != NULL && transfer->sample_count >= AIRSPY_BUFFER_COPY_SIZE)
@@ -232,6 +157,14 @@ int airspy_rx(airspy_transfer_t* transfer)
         pthread_mutex_unlock(&rf_buffer.mutex);
     }
 	return 0;
+}
+*/
+Pluto_rx()
+{
+    //rf_buffer.index = 0;
+    size_t Received = fmc_rx_samples_float((float *)rf_buffer.data); // This is synchrone
+    
+    
 }
 
 typedef struct {
@@ -252,31 +185,19 @@ void *thread_fft(void *dummy)
     double           pwr, lpwr;
 
 	double pwr_scale = 1.0 / ((float)FFT_SIZE * (float)FFT_SIZE);
-
+    rf_buffer.index = 0;
     while(1)
     {
-    	/* Lock input buffer */
-    	pthread_mutex_lock(&rf_buffer.mutex);
-
-    	if(rf_buffer.index == rf_buffer.size)
-    	{
-	    	/* Wait for signalled input */
-	    	pthread_cond_wait(&rf_buffer.signal, &rf_buffer.mutex);
-    	}
-
-    	offset = rf_buffer.index * FFT_SIZE * 2;
-
+        size_t Received = fmc_rx_samples_float((float *)rf_buffer.data); // This is synchrone	
+        
     	/* Copy data out of rf buffer into fft_input buffer */
     	for (i = 0; i < FFT_SIZE; i++)
 	    {
-	        fft_in[i][0] = ((float*)rf_buffer.data)[offset+(2*i)] * hanning_window_const[i];
-	        fft_in[i][1] = ((float*)rf_buffer.data)[offset+(2*i)+1] * hanning_window_const[i];
+            //fprintf(stderr,"%f %f\n",fft_in[i][0],fft_in[i][1]);
+	        fft_in[i][0] = ((float*)rf_buffer.data)[(2*i)] * hanning_window_const[i];
+	        fft_in[i][1] = ((float*)rf_buffer.data)[(2*i)+1] * hanning_window_const[i];
+            //fprintf(stderr,"%f %f\n",fft_in[i][0],fft_in[i][1]);
 	    }
-
-	    rf_buffer.index++;
-
-	    /* Unlock input buffer */
-    	pthread_mutex_unlock(&rf_buffer.mutex);
 
     	/* Run FFT */
     	fftw_execute(fft_plan);
@@ -298,11 +219,12 @@ void *thread_fft(void *dummy)
 	            pt[1] = fft_out[i - FFT_SIZE / 2][1] / FFT_SIZE;
 	        }
 	        pwr = pwr_scale * (pt[0] * pt[0]) + (pt[1] * pt[1]);
-	        lpwr = 10.f * log10(pwr + 1.0e-20);
-	        
+	        lpwr = 10.f * log10(pwr );
+	        //fprintf(stderr,"%f,",lpwr);
 	        fft_buffer.data[i] = (lpwr * (1.f - FFT_TIME_SMOOTH)) + (fft_buffer.data[i] * FFT_TIME_SMOOTH);
+            //fprintf(stderr,"%f,",fft_buffer.data[i]);
 	    }
-
+        //fprintf(stderr,"\n-------------------------------------------------------\n",lpwr);
 	    /* Unlock output buffer */
     	pthread_mutex_unlock(&fft_buffer.mutex);
     }
@@ -341,14 +263,14 @@ websocket_output_t websocket_output_fast = {
 
 #define FFT_PRESCALE 3.0
 
-#define FFT_OFFSET  92
+#define FFT_OFFSET  80
 #define FFT_SCALE   (FFT_PRESCALE * 3000)
 
 
-#define FLOOR_TARGET	(FFT_PRESCALE * 47000)
-#define FLOOR_TIME_SMOOTH 0.995
+#define FLOOR_TARGET	(FFT_PRESCALE * 10000)
+#define FLOOR_TIME_SMOOTH 0.998
 
-#define FLOOR_OFFSET    (FFT_PRESCALE * 38000)
+#define FLOOR_OFFSET    (FFT_PRESCALE * 40000)
 
 static uint32_t lowest_smooth = FLOOR_TARGET;
 
@@ -362,20 +284,21 @@ void fft_to_buffer(websocket_output_t *_websocket_output)
 
     /* Create and append data points */
     i = 0;
-    //uint32_t min = 0xFFFFFFFF, max = 0;
-    //float fmin = FLT_MAX, fmax = -FLT_MAX; 
+   uint32_t min = 0xFFFFFFFF, max = 0;
+    float fmin = FLT_MAX, fmax = -FLT_MAX; 
 
     /* Lock FFT output buffer for reading */
     pthread_mutex_lock(&fft_buffer.mutex);
 
     for(j=(FFT_SIZE*0.05);j<(FFT_SIZE*0.95);j++)
     {
-        fft_output_data[i] = (uint32_t)(FFT_SCALE * (fft_buffer.data[j] + FFT_OFFSET)) + (FFT_PRESCALE*fft_line_compensation[j]); // (fft_line_compensation[j] / 3.0);
-        //if(fft_buffer.data[j] > fmax) fmax = fft_buffer.data[j];
-        //if(fft_buffer.data[j] < fmin) fmin = fft_buffer.data[j];
+        fft_output_data[i] = (uint32_t)(FFT_SCALE * (fft_buffer.data[j] + FFT_OFFSET)) /*+ (FFT_PRESCALE*fft_line_compensation[j])*/; 
+        //fprintf(stderr,"%f %u\n",fft_buffer.data[j],fft_output_data[i]);
+        if(fft_buffer.data[j] > fmax) fmax = fft_buffer.data[j];
+        if(fft_buffer.data[j] < fmin) fmin = fft_buffer.data[j];
 
-        //if(fft_output_data[i]  > max) max = fft_output_data[i] ;
-        //if(fft_output_data[i]  < min) min = fft_output_data[i] ;
+        if(fft_output_data[i]  > max) max = fft_output_data[i] ;
+        if(fft_output_data[i]  < min) min = fft_output_data[i] ;
 
         i++;
     }
@@ -383,10 +306,10 @@ void fft_to_buffer(websocket_output_t *_websocket_output)
     /* Unlock FFT output buffer */
     pthread_mutex_unlock(&fft_buffer.mutex);
 
-    //printf("min: %"PRIu32"\n", min);
-    //printf("max: %"PRIu32"\n", max);
-    //printf("fmin: %f\n", fmin);
-    //printf("fmax: %f\n", fmax);
+    printf("min: %"PRIu32"\n", min);
+    printf("max: %"PRIu32"\n", max);
+    printf("fmin: %f\n", fmin);
+    printf("fmax: %f\n", fmax);
 
    	/* Calculate noise floor */
    	lowest = 0xFFFFFFFF;
@@ -401,7 +324,8 @@ void fft_to_buffer(websocket_output_t *_websocket_output)
 
     /* Compensate for noise floor */
     offset = (FLOOR_TARGET) - lowest_smooth;
-    //printf("lowest: %d, lowest_smooth: %d, offset: %d\n", lowest, lowest_smooth, offset);
+   
+    printf("lowest: %d, lowest_smooth: %d, offset: %d\n", lowest, lowest_smooth, offset);
 
     for(j = 0; j < i; j++)
     {
@@ -409,11 +333,12 @@ void fft_to_buffer(websocket_output_t *_websocket_output)
         fft_output_data[j] += offset;
 
         /* Subtract viewport floor offset and set to zero if underflow */
+        /*
         if(__builtin_usub_overflow(fft_output_data[j], (uint32_t)FLOOR_OFFSET, &fft_output_data[j]))
         {
             fft_output_data[j] = 0;
         }
-
+    */
         /* Divide output by FFT_PRESCALE to scale for uint16_t */
         fft_output_data[j] /= FFT_PRESCALE;
 
@@ -882,7 +807,7 @@ int main(int argc, char **argv)
 
 	memset(&info, 0, sizeof info);
 	info.port = WS_PORT;
-	info.iface = NULL;
+	info.iface = "eno1";
 	info.protocols = protocols;
 	info.gid = -1;
 	info.uid = -1;
@@ -908,6 +833,7 @@ int main(int argc, char **argv)
 		return -1;
 	}
 	
+    /*
 	fprintf(stdout, "Initialising AirSpy (%.01fMSPS, %.03fMHz).. ",(float)sample_rate_val/1000000,(float)freq_hz/1000000);
 	fflush(stdout);
 	if(!setup_airspy())
@@ -915,6 +841,15 @@ int main(int argc, char **argv)
 	    fprintf(stderr, "AirSpy init failed.\n");
 		return -1;
 	}
+    */
+   fprintf(stdout, "Initialising Pluto (%.01fMSPS, %.03fMHz).. ",(float)sample_rate_val/1000000,(float)freq_hz/1000000);
+	fflush(stdout);
+	if(!setup_pluto())
+	{
+	    fprintf(stderr, "Pluto init failed.\n");
+		return -1;
+	}
+
 	fprintf(stdout, "Done.\n");
 	
 	fprintf(stdout, "Starting FFT Thread.. ");
@@ -987,7 +922,7 @@ int main(int argc, char **argv)
     pthread_join(wsThread, NULL);
     lws_context_destroy(context);
 
-	close_airspy();
+	//close_airspy();
 	close_fftw();
 	closelog();
 
